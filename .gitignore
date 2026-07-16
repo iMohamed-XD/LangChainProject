@@ -1,0 +1,7 @@
+.venv
+.ipynb_checkpoints
+chroma_db
+.env
+__pycache__
+Pipfile.lock
+Pipfile

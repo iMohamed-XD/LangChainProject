@@ -1,44 +1,92 @@
 # RAG Application — Company Handbook Q&A
 
-A retrieval-augmented generation (RAG) system that answers questions about a company handbook using Google's Gemini models, LangChain, and a local Chroma vector store. Supports multi-turn conversations via history-aware query reformulation.
+A full-stack retrieval-augmented generation (RAG) system that answers questions about a company handbook using Google's Gemini models, LangChain, and a local Chroma vector store. Supports multi-turn conversations via history-aware query reformulation, served through a FastAPI backend and a React + TypeScript frontend.
 
 ## Architecture
 
 ```
-company_handbook.md
+                        ┌─────────────────────────────┐
+                        │   React + TS + Tailwind      │
+                        │   (frontend/, Vite dev server)│
+                        └───────────────┬──────────────┘
+                                        │ POST /chat
+                                        ▼
+                        ┌─────────────────────────────┐
+                        │   FastAPI (Backend/app/main.py)│
+                        │   - CORS                     │
+                        │   - request/response schemas │
+                        │   - history truncation        │
+                        └───────────────┬──────────────┘
+                                        │ app.state.rag_chain
+                                        ▼
+                        ┌─────────────────────────────┐
+                        │   RAG.py — build_rag_chain()  │
+                        └───────────────┬──────────────┘
+                                        │
+company_handbook.md                    │
+        │                              │
+        ▼                              │
+MarkdownHeaderTextSplitter              │
+(splits on #, ##, ### and attaches      │
+header metadata)                        │
+        │                              │
+        ▼                              │
+RecursiveCharacterTextSplitter          │
+(chunk_size=800, chunk_overlap=100)     │
+        │                              │
+        ▼                              │
+GoogleGenerativeAIEmbeddings            │
+(embeds each chunk)                     │
+        │                              │
+        ▼                              │
+Chroma vector store                     │
+(persisted to Backend/app/data/chroma_db,│
+hash-checked on startup — rebuilds only │
+if company_handbook.md content changed) │
+        │                              │
+        ▼                              │
+history_aware_retriever ─── rephrases follow-up questions using chat history
+        │                              │
+        ▼                              │
+create_retrieval_chain + create_stuff_documents_chain
         │
         ▼
-MarkdownHeaderTextSplitter   (splits on #, ##, ### and attaches header metadata)
-        │
-        ▼
-RecursiveCharacterTextSplitter   (chunk_size=800, chunk_overlap=100)
-        │
-        ▼
-GoogleGenerativeAIEmbeddings   (embeds each chunk)
-        │
-        ▼
-Chroma vector store   (persisted to ./chroma_db)
-        │
-        ▼
-history_aware_retriever   ─── rephrases follow-up questions using chat history
-        │
-        ▼
-create_retrieval_chain + create_stuff_documents_chain   ─── retrieves top-k chunks, feeds them to Gemini as context
-        │
-        ▼
-Answer + source chunks printed to console
+Answer + source chunks returned as JSON ──► rendered in the React chat UI
 ```
 
 **Models used:**
 - LLM: `gemini-2.5-flash`
 - Embeddings: `gemini-embedding-2-preview` (768 dimensions)
 
+## Project Structure
+
+```
+.
+├── Backend/
+│   └── app/
+│       ├── main.py                # FastAPI app: /chat endpoint, CORS, lifespan startup
+│       ├── RAG.py                 # RAG pipeline: build_rag_chain(), CLI loop (main())
+│       ├── RAG Application.ipynb  # original notebook prototype (kept for reference)
+│       └── data/
+│           ├── company_handbook.md  # source document
+│           └── chroma_db/           # generated on first run, persisted vector store
+├── frontend/                      # React + TypeScript + Tailwind (Vite)
+│   ├── package.json
+│   └── ...
+├── .venv/                         # Python virtual environment (not committed)
+├── .env                           # not committed — holds GOOGLE_API_KEY
+├── .gitignore
+├── requirements.txt
+└── README.md
+```
+
+> Note: `Pipfile` / `Pipfile.lock` from an earlier Pipenv setup are no longer used — dependency management is now `venv` + `requirements.txt`. Delete those two files if they're still present.
+
 ## Prerequisites
 
-- Python 3.12 (the notebook environment was built and tested on 3.12.10)
-- pip or [Poetry](https://python-poetry.org/) for dependency management
+- Python 3.12 (developed/tested on 3.12.10)
+- Node.js 18+ and npm (for the Vite/React frontend)
 - A Google account (for the Gemini API key)
-- Jupyter (to run the `.ipynb` notebook), or an editor with notebook support (VS Code, JupyterLab)
 
 ## 1. Get a Google API Key
 
@@ -50,18 +98,18 @@ Answer + source chunks printed to console
 
 **Notes:**
 - The free tier has rate limits (requests per minute and per day) that vary by model. Check the [Gemini API rate limits page](https://ai.google.dev/gemini-api/docs/rate-limits) if you hit `429` errors during testing.
-- Treat this key like a password. Never commit it to version control (see step 4 below).
+- Treat this key like a password. Never commit it to version control (see step 3 below).
 
-## 2. Clone / Download the Project
+## 2. Clone the Project
 
 ```bash
 git clone https://github.com/iMohamed-XD/LangChainProject
 cd LangChainProject
 ```
 
-## 3. Set Up a Virtual Environment
+## 3. Backend Setup
 
-**Using venv:**
+### 3.1 Create and activate a virtual environment
 
 ```bash
 python3 -m venv .venv
@@ -69,54 +117,55 @@ source .venv/bin/activate        # macOS/Linux
 .venv\Scripts\activate           # Windows
 ```
 
-**Using Poetry (alternative):**
-
-```bash
-poetry init --python "^3.12"
-poetry shell
-```
-
-## 4. Install Dependencies
+### 3.2 Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-`requirements.txt` contents:
+`requirements.txt` should contain at least:
 
 ```
 fastapi
 uvicorn
 langchain
 langchain-core
+langchain-classic
 langchain-community
 langchain-google-genai
 langchain-text-splitters
 langchain-chroma
 python-dotenv
 jupyter
-....
 ```
 
-## 5. Configure Environment Variables
+> `langchain_classic` is imported directly in `RAG.py` (`create_history_aware_retriever`, `create_retrieval_chain`, `create_stuff_documents_chain`) — make sure it's listed, since newer LangChain versions moved these chains out of `langchain.chains`.
 
-Create a `.env` file in the project root (same directory as the notebook):
+### 3.3 Configure environment variables
+
+Create a `.env` file in the **project root** (same level as `Backend/`):
 
 ```
 GOOGLE_API_KEY=your_api_key_here
 ```
 
-Add `.env` to `.gitignore` if this project is under version control:
+Add it to `.gitignore` if not already there:
 
 ```bash
 echo ".env" >> .gitignore
 ```
 
-The notebook loads this key via `load_dotenv()` and will raise a clear error on startup if it's missing.
+`RAG.py` loads this via `load_dotenv()` and raises a clear error on startup if it's missing.
 
-## 6. Add Your Source Document
+### 3.4 Add your source document
 
-The notebook expects a markdown file named `company_handbook.md` in the working directory, structured with `#`, `##`, and `###` headers — the splitter uses these headers to preserve section context in each chunk.
+Place your handbook at:
+
+```
+Backend/app/data/company_handbook.md
+```
+
+It must use `#`, `##`, `###` headers — `MarkdownHeaderTextSplitter` relies on these to preserve section context in each chunk.
 
 Example structure:
 
@@ -135,79 +184,110 @@ Full-time employees accrue 15 vacation days per year...
 ...
 ```
 
-If your document has a different filename, update `DOC_PATH` in the "Load the Document" cell.
+If you rename or relocate the file, update `DOC_PATH` in `load_document()` inside `RAG.py`.
 
-## 7. Run the Notebook
+### 3.5 Run the backend
 
-Start Jupyter:
+From the project root, with the virtual environment active:
 
 ```bash
-jupyter notebook
+uvicorn Backend.app.main:app --reload --port 8000
 ```
 
-Then open `RAG_Application.ipynb` and run all cells in order:
+On startup, the `lifespan` handler calls `build_rag_chain()` once — this loads the handbook, builds (or reuses) the Chroma index, and wires up the history-aware retrieval chain before the server starts accepting requests. The first run (or any run after the handbook content changes) will rebuild `chroma_db/`, which takes longer than subsequent runs since it re-embeds every chunk.
 
-1. **Install/Import libraries**
-2. **Load the LLM** — validates `GOOGLE_API_KEY` and initializes `gemini-2.5-flash`
-3. **Load the Document** — reads and validates `company_handbook.md`
-4. **Split the Document** — header-based split, then character-based split, then section tagging
-5. **Embed the Document** — initializes the embedding model
-6. **Prompt** — defines the QA prompt template
-7. **Vector Store** — builds or loads the persisted Chroma index at `./chroma_db`
-8. **Retriever** — builds the history-aware retriever and full RAG chain
-9. **Invoke the RAG system** — starts an interactive query loop in the notebook's input prompt
+## 4. Frontend Setup
 
-## 8. Using the Chat Loop
-
-Once the final cell is running, you'll see:
-
-```
-Enter your query (or 'exit' to quit):
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-Type a question about the handbook and press Enter. The system will:
-- Reformulate your question using prior chat history (if any)
-- Retrieve the most relevant chunks from the vector store
-- Generate an answer grounded in those chunks
-- Print the answer followed by a numbered preview of the source chunks used
+This starts the Vite dev server (default `http://localhost:5173`).
 
-Type `exit`, `stop`, or `quit` to end the session.
+## 5. API Reference
+
+### `POST /chat`
+
+**Request body:**
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "How many vacation days do I get?" },
+    { "role": "assistant", "content": "Full-time employees accrue 15 vacation days per year." },
+    { "role": "user", "content": "What about part-time employees?" }
+  ]
+}
+```
+
+- `messages` must be non-empty.
+- The **last** message must have `role: "user"` — it's treated as the current query; everything before it is chat history.
+- History is truncated server-side to the last `MAX_HISTORY_TURNS = 6` turns (12 messages) before being passed to the chain.
+
+**Response body:**
+
+```json
+{
+  "answer": "Part-time employees accrue vacation days on a pro-rated basis...",
+  "sources": [
+    "(Vacation Days) Full-time employees accrue 15 vacation days per year..."
+  ]
+}
+```
+
+- If no chunks clear the retriever's relevance bar, `answer` will be `"I couldn't find that information in the handbook."` and `sources` will be an empty list.
+- Each entry in `sources` is `(section_header) first 150 chars of chunk...`.
+
+**Error responses:**
+
+| Status | Cause |
+|---|---|
+| `400` | `messages` is empty, or the last message isn't `role: "user"` |
+| `500` | Exception raised inside the RAG chain (e.g. Gemini API error, rate limit) |
 
 ## Configuration Reference
 
 | Parameter | Location | Default | Purpose |
 |---|---|---|---|
-| `chunk_size` / `chunk_overlap` | Split cell | 800 / 100 | Character-level chunk sizing after header splitting |
-| `score_threshold` | Retriever cell | 0.75 | Minimum relevance score for a chunk to be retrieved |
-| `k` | Retriever cell | 4 | Max number of chunks retrieved per query |
-| `output_dimensionality` | Embedding cell | 768 | Embedding vector size |
-| `PERSIST_DIR` | Vector Store cell | `./chroma_db` | Where the Chroma index is stored on disk |
+| `chunk_size` / `chunk_overlap` | `RAG.py` → `get_chunks()` | 800 / 100 | Character-level chunk sizing after header splitting |
+| `search_type` | `RAG.py` → `retriever()` | `mmr` | Retrieval strategy (maximal marginal relevance) |
+| `k` / `fetch_k` / `lambda_mult` | `RAG.py` → `retriever()` | 4 / 20 / 0.5 | Retriever result count, candidate pool size, diversity weight |
+| `output_dimensionality` | `RAG.py` → `get_embeddings()` | 768 | Embedding vector size |
+| `PERSIST_DIR` | `RAG.py` → `vectorstore_and_chain()` | `Backend/app/data/chroma_db` | Where the Chroma index is stored on disk |
+| `MAX_HISTORY_TURNS` | `main.py` / `RAG.py` | 6 | Number of chat turns kept before truncation |
+| `origins` (CORS) | `main.py` | `["http://localhost:3000"]` | Allowed frontend origin(s) |
+
+## Optional: Standalone CLI Mode
+
+`RAG.py` can still be run directly for local testing without the API/frontend:
+
+```bash
+python -m Backend.app.RAG
+```
+
+This starts the same interactive loop as before — type a question, get an answer plus numbered source chunks, type `exit`/`stop`/`quit` to end.
 
 ## Troubleshooting
 
 **`GOOGLE_API_KEY not found`**
-`.env` is missing, misnamed, or not in the working directory the notebook was launched from. Confirm with `os.getcwd()` in a scratch cell.
+`.env` is missing, misnamed, or not readable from the process's working directory. Confirm it sits at the project root and that you're launching `uvicorn` from there.
 
 **`company_handbook.md not found`**
-Either the file isn't in the working directory, or `DOC_PATH` doesn't match the actual filename.
+Either the file isn't at `Backend/app/data/company_handbook.md`, or `DOC_PATH` in `RAG.py` doesn't match the actual filename.
 
-**No answers / "no relevant content" for questions you know are covered**
-The `score_threshold=0.75` retriever can return zero chunks if nothing clears the bar. Try lowering the threshold or rebuilding the vector store if the handbook content changed after the index was first created — a stale `./chroma_db` will keep serving old embeddings. Delete the `chroma_db` folder to force a full rebuild.
+**No answers / "I couldn't find that information in the handbook" for questions you know are covered**
+The MMR retriever (`k=4, fetch_k=20`) can return chunks that don't fully cover the answer, or none at all if the query and content diverge semantically. Try rephrasing, or rebuild the vector store if the handbook content changed — a stale `chroma_db` is only invalidated by an MD5 hash check on the full document text, so any edit to `company_handbook.md` triggers an automatic rebuild on next startup. To force a rebuild manually, delete `Backend/app/data/chroma_db/`.
+
+**CORS error in the browser console**
+See the CORS note in section 4 — `origins` in `main.py` must match the frontend's actual dev server URL/port.
 
 **Rate limit / `429` errors**
-You've hit the Gemini API's free-tier request limits. Wait for the quota window to reset or check your usage in [Google AI Studio](https://aistudio.google.com/).
+You've hit the Gemini API's free-tier request limits. Wait for the quota window to reset or check usage in [Google AI Studio](https://aistudio.google.com/).
 
 **`ModuleNotFoundError`**
-Confirm your virtual environment is activated and `pip install -r requirements.txt` completed without errors.
+Confirm the virtual environment is activated and `pip install -r requirements.txt` completed without errors. If the error is specifically about `langchain_classic`, add it to `requirements.txt` (see section 3.2).
 
-## Project Structure
-
-```
-.
-├── RAG_Application.ipynb
-├── requirements.txt
-├── .env                  # not committed — holds GOOGLE_API_KEY
-├── company_handbook.md   # your source document
-├── chroma_db/            # generated on first run, persisted vector store
-└── README.md
-```
+**`500: RAG chain error` from `/chat`**
+Check the uvicorn logs for the underlying exception — usually a Gemini API error (bad key, rate limit) surfacing through `ainvoke()`.

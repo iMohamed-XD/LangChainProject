@@ -8,9 +8,12 @@ from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.messages import HumanMessage, AIMessage
 from dotenv import load_dotenv
+from pathlib import Path
 import os
 import hashlib
 import shutil
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def llm():
@@ -26,7 +29,7 @@ def llm():
 
 
 def load_document():
-    DOC_PATH = "../data/company_handbook.md"
+    DOC_PATH = BASE_DIR / "data" / "company_handbook.md"
     if not os.path.exists(DOC_PATH):
         raise FileNotFoundError(
             f"{DOC_PATH} not found in {os.getcwd()}. "
@@ -96,7 +99,7 @@ def prompt():
 
 
 def vectorstore_and_chain(document, embeddings, chunks, qa_prompt, llm):
-    PERSIST_DIR = "../data/chroma_db"
+    PERSIST_DIR = BASE_DIR / "data" / "chroma_db"
     DOC_HASH_FILE = os.path.join(PERSIST_DIR, ".doc_hash")
 
     current_hash = hashlib.md5(document[0].page_content.encode("utf-8")).hexdigest()

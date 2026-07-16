@@ -55,8 +55,8 @@ Answer + source chunks printed to console
 ## 2. Clone / Download the Project
 
 ```bash
-git clone <your-repo-url>
-cd <project-directory>
+git clone https://github.com/iMohamed-XD/LangChainProject
+cd LangChainProject
 ```
 
 If you don't have a repo yet, just place `RAG_Application.ipynb` in a project folder and work from there.

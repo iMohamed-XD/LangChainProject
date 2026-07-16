@@ -59,8 +59,6 @@ git clone https://github.com/iMohamed-XD/LangChainProject
 cd LangChainProject
 ```
 
-If you don't have a repo yet, just place `RAG_Application.ipynb` in a project folder and work from there.
-
 ## 3. Set Up a Virtual Environment
 
 **Using venv:**
@@ -95,6 +93,7 @@ langchain-text-splitters
 langchain-chroma
 python-dotenv
 jupyter
+....
 ```
 
 ## 5. Configure Environment Variables

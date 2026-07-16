@@ -87,6 +87,8 @@ pip install -r requirements.txt
 `requirements.txt` contents:
 
 ```
+fastapi
+uvicorn
 langchain
 langchain-core
 langchain-community
